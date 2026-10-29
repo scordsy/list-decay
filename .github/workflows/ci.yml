@@ -8,15 +8,21 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch makes an older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     name: Lint and types
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - run: pip install -e ".[dev]"
       - run: ruff format --check .
       - run: ruff check .
@@ -25,17 +31,22 @@ jobs:
   test:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Every supported Python on Linux. macOS and Windows on the oldest and newest, which is
+        # where platform differences show up, without queueing for scarce macOS runners.
+        os: [ubuntu-24.04]
         python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
-          - os: windows-latest
-            python: "3.14"
+          - { os: macos-latest, python: "3.10" }
+          - { os: macos-latest, python: "3.14" }
+          - { os: windows-latest, python: "3.10" }
+          - { os: windows-latest, python: "3.14" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"

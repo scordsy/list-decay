@@ -4,6 +4,7 @@
 
 - `list-decay find`: fills in company numbers from company names, for CRMs that don't hold them. A number is filled in only when it is certain: exactly one company with that name and legal form, and the same registered postcode where the file has one. Everything else is marked "check by hand" with every candidate listed. Every original column is kept, and an existing company number column has its gaps filled, so the file can go straight back into a CRM, or straight into `list-decay check`.
 - `check` counts rows with no company number yet separately from unreadable ones.
+- CI: Linux on every supported Python, macOS and Windows on the oldest and newest, current action versions, and superseded runs cancelled.
 
 ## 0.1.0 (29 Oct 2026)
 
