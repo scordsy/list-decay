@@ -46,6 +46,31 @@ _Avoid_: missing, invalid
 Closing plus dissolved. The headline figure.
 _Avoid_: dead or dying, churned
 
+## Finding company numbers
+
+**Match**:
+A company number `find` is certain of: exactly one company on the register has the same name and legal form, and the same registered postcode where the list gives one.
+_Avoid_: fuzzy match, best guess
+
+**Legal form**:
+The kind of company a name declares: limited, PLC, LLP, CIC and so on. "Ltd" and "Limited" are one legal form; "Ltd" and "LLP" are two.
+_Avoid_: suffix, company type
+
+**Candidate**:
+A company on the register that might be the one on your list, shown so a person can decide.
+_Avoid_: suggestion, result
+
+**Check by hand**:
+A row `find` won't decide: more than one company with the name (even if a postcode agrees with one), the right name with a different legal form, or a name that matches with a postcode that doesn't.
+
+**No match**:
+No company on the register has the name. The closest candidates are still listed.
+_Avoid_: not found (that is a verdict on a company number)
+
+**Registered postcode**:
+The postcode of a company's registered office. Often its accountant's, not where it trades.
+_Avoid_: address, location
+
 ## The study
 
 **List date**:

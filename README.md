@@ -32,6 +32,7 @@ But if the company has gone, none of that matters. And a dissolved company doesn
 
 - Every company on your list gets a verdict from the live register: trading, closing or dissolved.
 - Closing companies say how: liquidation, administration, or being struck off.
+- No company numbers in your CRM? `list-decay find` fills them in from the names, and only when it's certain.
 - It costs nothing. The Companies House API is free, and list-decay needs nothing installed beyond Python.
 
 ## What a three-year-old list looks like
@@ -68,7 +69,7 @@ No `pipx`? `pip install git+https://github.com/scordsy/list-decay` works too. Or
 
 ## Get a free Companies House API key
 
-Checking your own list needs a key. It's free:
+Checking or finding numbers for your own list needs a key. It's free:
 
 1. Register with the [Companies House Developer Hub](https://developer.company-information.service.gov.uk/).
 2. Under [Your applications](https://developer.company-information.service.gov.uk/manage-applications), create an application for the **live** environment.
@@ -88,12 +89,28 @@ A CSV or a plain text file, straight out of your CRM or a spreadsheet. list-deca
 
 ### No company numbers in your CRM?
 
-Most CRMs hold a company name and a website, not a company number. Two ways to get them:
+Most CRMs hold a company name, not a company number. `list-decay find` fills the numbers in from the names, then `check` takes it from there:
 
-- For a handful of companies, look each one up on the free [Companies House search](https://find-and-update.company-information.service.gov.uk/).
-- Many UK data providers can add the company number to an export. Ask for it as a field.
+```bash
+list-decay find crm-export.csv
+list-decay check crm-export-numbers.csv
+```
 
-Why not match on the name instead? Because a name match is wrong often enough to make the check meaningless. A search for one courier firm returns thousands of results, and names get reused after a company is dissolved ([more on why](docs/adr/0003-company-number-is-the-only-input.md)).
+It searches the register for each name and fills in a number only when it's certain:
+
+| Result | What it means |
+|---|---|
+| **Matched** | Exactly one company on the register has that name, and the registered postcode agrees if your file has a postcode column |
+| **Check by hand** | More than one company has that name, or the right name has a different legal form, or the postcode doesn't agree. Every candidate is in the file for you to pick from |
+| **No match** | Nothing on the register has that name. The three closest candidates are listed |
+
+"That name" ignores case, punctuation, accents, "&" versus "and", a leading "The" and spellings of the same legal form ("Ltd", "Limited"). It never ignores a different legal form: "Acme LLP" won't match "Acme Limited". And it never guesses. A wrong number would give a confident verdict about the wrong company, which is worse than no verdict ([the full rules](docs/adr/0004-find-fills-in-a-number-only-when-certain.md)).
+
+Your file comes back with every original column kept, plus `match`, `matched_on` and `candidates`, so it can go straight back into your CRM. If it already has a company number column, `find` fills in the gaps and leaves the numbers already there alone. Otherwise it adds a `company_number` column.
+
+The file needs a header row naming the company name column (`Company Name`, `Account Name`, `Organisation` and the like). A plain `Name` column doesn't count, because in a contacts export that's usually a person. A postcode column is picked up if there is one.
+
+For a handful of companies, the free [Companies House search](https://find-and-update.company-information.service.gov.uk/) works too.
 
 ## What comes out
 
@@ -161,13 +178,14 @@ list-decay study --live --size 1000 --incorporated 2016-01-01 2021-12-31 --list-
 
 - **UK companies only.** The study covers England and Wales companies incorporated 2016 to 2021.
 - **Being struck off isn't always the end.** It often starts with late filing, and some companies file and carry on. That's why the study reports it separately from insolvency.
+- **A name match proves the name, not the business.** If your CRM holds trading names rather than registered names, "Acme" in your CRM might not be ACME LTD on the register. Add a postcode column and `find` checks the registered postcode as well as the name. The register holds the registered office, often an accountant's address, so a postcode that differs sends the row to check by hand rather than throwing it away.
 - **A company that's still trading can still be a bad lead.** list-decay checks the company, not the person.
 - **The bundled snapshot is from 20 July 2026.** `--demo` and `study` replay it exactly. Checking your own list is always live.
 
 ## How it's built
 
 - Python 3.10 or newer, **standard library only**: nothing to install, nothing to break ([why](docs/adr/0002-standard-library-only.md)).
-- Tests where it matters: reading messy lists, checking a list against a register, the live connection (against a fake Companies House, including rate limits and outages), and the study reproducing the published figures to the decimal.
+- Tests where it matters: reading messy lists, checking a list against a register, finding numbers from names, the live connection (against a fake Companies House, including rate limits and outages), and the study reproducing the published figures to the decimal.
 - Every change runs strict type checks, linting and the tests, on Linux, macOS and Windows.
 - [`GLOSSARY.md`](GLOSSARY.md) pins down the words, and [`docs/adr`](docs/adr) records the decisions you might question.
 

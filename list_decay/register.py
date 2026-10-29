@@ -10,11 +10,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date
 from importlib import resources
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from list_decay._version import __version__
 from list_decay.company import Company, parse_date
@@ -40,6 +40,9 @@ KEY_URL = "https://developer.company-information.service.gov.uk/manage-applicati
 # window resets. 1.9 a second stays just under the 2.0 that works out to.
 LOOKUPS_PER_SECOND = 1.9
 _TIMEOUT_SECONDS = 30.0
+# The most the search returns in one request. Same cost as fewer, and it catches namesakes
+# ranked further down, which turn a confident match into a check by hand.
+_SEARCH_RESULTS = 100
 _MAX_ATTEMPTS = 6
 _DEFAULT_RATE_LIMIT_WAIT = 60.0
 
@@ -54,6 +57,25 @@ class ApiKeyRejected(RegisterError):
 
 class RegisterUnavailable(RegisterError):
     """Companies House kept failing, after waiting and retrying."""
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    """A company from the register's name search that might be the one a list means."""
+
+    number: str
+    name: str
+    postcode: str
+    register_status: str
+
+    @classmethod
+    def from_search(cls, item: dict[str, Any]) -> Candidate:
+        return cls(
+            number=str(item.get("company_number") or ""),
+            name=str(item.get("title") or ""),
+            postcode=str((item.get("address") or {}).get("postal_code") or ""),
+            register_status=str(item.get("company_status") or ""),
+        )
 
 
 class Register(Protocol):
@@ -142,14 +164,24 @@ class LiveRegister:
         return "the live Companies House register"
 
     def lookup(self, number: str) -> Company | None:
-        url = f"{self._base_url}/company/{urllib.parse.quote(number)}"
+        profile = self._get(f"/company/{urllib.parse.quote(number)}", about=number)
+        return None if profile is None else Company.from_register(profile)
+
+    def search(self, name: str) -> list[Candidate]:
+        """Candidates from the register's own name search: loose, ranked, up to 100 of them."""
+        query = urllib.parse.urlencode({"q": name, "items_per_page": _SEARCH_RESULTS})
+        found = self._get(f"/search/companies?{query}", about=name) or {}
+        return [Candidate.from_search(item) for item in found.get("items") or ()]
+
+    def _get(self, path: str, *, about: str) -> dict[str, Any] | None:
+        """GET one API path as JSON. None on 404. Paced, retried, and never echoes the key."""
         problem, wait = "", 0.0
         for attempt in range(_MAX_ATTEMPTS):
             if attempt:
                 self._sleep(wait)
             self._pace()
             try:
-                return self._fetch(url)
+                return self._fetch(self._base_url + path)
             except urllib.error.HTTPError as error:
                 error.close()
                 if error.code == 404:
@@ -161,7 +193,7 @@ class LiveRegister:
                     ) from None
                 if error.code != 429 and error.code < 500:
                     raise RegisterUnavailable(
-                        f"Companies House answered HTTP {error.code} for {number}"
+                        f"Companies House answered HTTP {error.code} for {about}"
                     ) from None
                 problem = f"HTTP {error.code}"
                 wait = _rate_limit_wait(error) if error.code == 429 else _backoff(attempt)
@@ -169,17 +201,18 @@ class LiveRegister:
                 problem = f"no connection ({getattr(error, 'reason', error)})"
                 wait = _backoff(attempt)
         raise RegisterUnavailable(
-            f"Companies House did not answer for {number} after {_MAX_ATTEMPTS} attempts "
+            f"Companies House did not answer for {about} after {_MAX_ATTEMPTS} attempts "
             f"(last: {problem}). Try again in a few minutes."
         )
 
-    def _fetch(self, url: str) -> Company:
+    def _fetch(self, url: str) -> dict[str, Any]:
         request = urllib.request.Request(url)
         request.add_header("Authorization", self._auth)
         request.add_header("Accept", "application/json")
         request.add_header("User-Agent", f"list-decay/{__version__}")
         with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-            return Company.from_register(json.load(response))
+            body: dict[str, Any] = json.load(response)
+            return body
 
     def _pace(self) -> None:
         if self._last_request is not None:

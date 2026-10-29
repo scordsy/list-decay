@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from list_decay._reading import header_key, read_text, sniff_dialect
+
 # Header names that mean "this column holds the company number", compared with case, spaces
 # and punctuation stripped.
 _NUMBER_HEADERS = {
@@ -56,6 +58,7 @@ class CompanyList:
     column: str | None = None
     duplicates: int = 0
     unreadable: list[tuple[int, str]] = field(default_factory=list)
+    blank: int = 0  # rows with an empty number cell, such as the ones `find` left to check
 
 
 def read_company_list(path: Path) -> CompanyList:
@@ -64,12 +67,13 @@ def read_company_list(path: Path) -> CompanyList:
     Uses the column whose header names a company number if there is one, otherwise the first
     column. Comma, semicolon, tab and pipe separators are all recognised.
     """
-    text = _read_text(path)
-    rows = csv.reader(text.splitlines(), dialect=_sniff_dialect(text))
+    text = read_text(path)
+    rows = csv.reader(text.splitlines(), dialect=sniff_dialect(text))
 
     numbers: list[str] = []
     seen: set[str] = set()
     duplicates = 0
+    blank = 0
     unreadable: list[tuple[int, str]] = []
     column_index: int | None = None
     column_name: str | None = None
@@ -83,7 +87,9 @@ def read_company_list(path: Path) -> CompanyList:
                 continue
         cell = row[column_index].strip() if column_index < len(row) else ""
         number = normalise_company_number(cell)
-        if number is None:
+        if not cell:
+            blank += 1
+        elif number is None:
             unreadable.append((rows.line_num, cell))
         elif number in seen:
             duplicates += 1
@@ -91,28 +97,18 @@ def read_company_list(path: Path) -> CompanyList:
             seen.add(number)
             numbers.append(number)
 
-    return CompanyList(numbers, column_name, duplicates, unreadable)
+    return CompanyList(numbers, column_name, duplicates, unreadable, blank)
 
 
-def _read_text(path: Path) -> str:
-    raw = path.read_bytes()
-    try:
-        return raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return raw.decode("latin-1")  # older Excel exports; numbers are ASCII either way
-
-
-def _sniff_dialect(text: str) -> type[csv.Dialect] | csv.Dialect:
-    try:
-        return csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
-    except csv.Error:
-        return csv.excel
+def is_number_header(cell: str) -> bool:
+    """Does this column header name a company number?"""
+    return header_key(cell) in _NUMBER_HEADERS
 
 
 def _choose_column(first_row: list[str]) -> tuple[int, str | None, bool]:
     """Pick the column to read from the first non-blank row: (index, header name, is_header)."""
     for index, cell in enumerate(first_row):
-        if re.sub(r"[^a-z]", "", cell.lower()) in _NUMBER_HEADERS:
+        if is_number_header(cell):
             return index, cell.strip(), True
     if normalise_company_number(first_row[0]) is not None:
         return 0, None, False

@@ -6,14 +6,17 @@ import argparse
 import os
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date
 from pathlib import Path
+from typing import TypeVar
 
 from list_decay import render
 from list_decay._version import __version__
 from list_decay.check import CheckedCompany, check, write_results
 from list_decay.company_list import read_company_list
+from list_decay.find import Finding, find, write_found
+from list_decay.name_list import NoNameColumn, read_name_list
 from list_decay.register import (
     API_BASE,
     KEY_URL,
@@ -55,6 +58,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "check":
             return _check(args)
+        if args.command == "find":
+            return _find(args)
         return _study(args)
     except UsageError as error:
         print(f"list-decay: {error}", file=sys.stderr)
@@ -103,6 +108,26 @@ def _parser() -> argparse.ArgumentParser:
     check_cmd.add_argument(
         "--pace", type=float, default=0.0, metavar="SECONDS", help="pause between lines (demos)"
     )
+
+    find_cmd = commands.add_parser(
+        "find",
+        help="find company numbers from company names",
+        description="Find the company number for each company name on a list. A number is "
+        "filled in only when it is certain: exactly one company on the register has the name "
+        "(Ltd and Limited count as the same, as do '&' and 'and'), and the same registered "
+        "postcode where the file has one. Everything else is marked for checking by hand, with "
+        "the candidates listed. The file needs a header row naming the company name column. "
+        "Needs a free API key in CH_API_KEY.",
+        epilog=UK_ONLY,
+    )
+    find_cmd.add_argument("file", type=Path, help="CSV or text file of company names")
+    find_cmd.add_argument(
+        "--out",
+        type=Path,
+        metavar="CSV",
+        help="where to write the list with numbers added (default: FILE-numbers.csv)",
+    )
+    find_cmd.add_argument("--quiet", action="store_true", help="print the summary only")
 
     study_cmd = commands.add_parser(
         "study",
@@ -164,23 +189,74 @@ def _check(args: argparse.Namespace) -> int:
 
     paint = render.Painter(sys.stdout)
     print(render.check_header(paint, len(numbers), register.source, notes))
-    results: list[CheckedCompany] = []
-    try:
-        for result in check(numbers, register):
-            results.append(result)
-            if not args.quiet:
-                print(render.check_line(paint, result, show_name=args.names), flush=True)
-                time.sleep(args.pace)
-    except KeyboardInterrupt:
-        print(paint(f"\n  Stopped after {len(results):,} of {len(numbers):,}.", render.BOLD))
-    if not args.quiet:
-        print()
+    results: list[CheckedCompany] = _stream(
+        check(numbers, register),
+        paint,
+        total=len(numbers),
+        line=None if args.quiet else lambda r: render.check_line(paint, r, show_name=args.names),
+        pace=args.pace,
+    )
     print(render.check_summary(paint, results))
 
     if args.out:
         write_results(args.out, results)
         print(paint(f"  Results written to {args.out}\n", render.DIM))
     return 0
+
+
+def _find(args: argparse.Namespace) -> int:
+    if not args.file.is_file():
+        raise UsageError(f"can't find {args.file}")
+    try:
+        names = read_name_list(args.file)
+    except NoNameColumn as error:
+        raise UsageError(f"{args.file}: {error}") from None
+    if not names.records:
+        raise UsageError(f"no company names found in {args.file}")
+    register = LiveRegister(_api_key(), base_url=API_BASE)
+    out = args.out or args.file.with_name(f"{args.file.stem}-numbers.csv")
+
+    paint = render.Painter(sys.stdout)
+    print(render.find_header(paint, names, args.file.name))
+    findings: list[Finding] = _stream(
+        find(names.companies, register),
+        paint,
+        total=len(names.records),
+        line=None if args.quiet else lambda f: render.find_line(paint, f),
+    )
+    write_found(out, names, findings)
+    print(render.find_summary(paint, findings, rows=len(names.records), written_to=str(out)))
+    return 0
+
+
+Item = TypeVar("Item")
+
+
+def _stream(
+    items: Iterable[Item],
+    paint: render.Painter,
+    *,
+    total: int,
+    line: Callable[[Item], str] | None,
+    pace: float = 0.0,
+) -> list[Item]:
+    """Collect results as they arrive, printing each with `line` unless it is None.
+
+    Ctrl-C stops the run and keeps everything that came back, so the summary and any output
+    file still cover the companies already checked.
+    """
+    collected: list[Item] = []
+    try:
+        for item in items:
+            collected.append(item)
+            if line is not None:
+                print(line(item), flush=True)
+                time.sleep(pace)
+    except KeyboardInterrupt:
+        print(paint(render.stopped(len(collected), total), render.BOLD))
+    if line is not None:
+        print()
+    return collected
 
 
 def _study(args: argparse.Namespace) -> int:

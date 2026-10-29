@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -18,7 +19,7 @@ EXPECTED_AUTH = "Basic dGVzdC1rZXktbm90LWEtc2VjcmV0Og=="
 
 @dataclass
 class FakeCompaniesHouse:
-    """Answers /company/{number} like the real API: the company's profile, or 404.
+    """Answers /company/{number} like the real API (the profile, or 404), and name searches.
 
     `respond` scripts a run of responses for one number (a 429, then a 503, and so on). The last
     scripted response repeats; a scripted 200 serves the company's profile.
@@ -36,6 +37,8 @@ class FakeCompaniesHouse:
         self.script[number] = list(responses)
 
     def answer(self, path: str) -> tuple[int, dict[str, str], dict[str, Any] | None]:
+        if path.startswith("/search/companies?"):
+            return 200, {}, self.search(parse_qs(urlsplit(path).query)["q"][0])
         number = path.removeprefix("/company/")
         queue = self.script.get(number)
         if queue:
@@ -43,6 +46,25 @@ class FakeCompaniesHouse:
         else:
             status, headers = (200, {}) if number in self.companies else (404, {})
         return status, headers, self.companies.get(number) if status == 200 else None
+
+    def search(self, query: str) -> dict[str, Any]:
+        """Like the real search, loose on purpose: any company sharing a word with the query."""
+        words = set(query.upper().split())
+        items = [
+            {
+                "company_number": number,
+                "title": profile.get("company_name", ""),
+                "company_status": profile.get("company_status", ""),
+                "address": {
+                    "postal_code": (profile.get("registered_office_address") or {}).get(
+                        "postal_code", ""
+                    )
+                },
+            }
+            for number, profile in self.companies.items()
+            if words & set(profile.get("company_name", "").upper().split())
+        ]
+        return {"total_results": len(items), "items": items}
 
 
 @pytest.fixture

@@ -74,3 +74,51 @@ def test_names_never_run_into_the_verdict(
     listing.write_text("09955390\n", encoding="utf-8")
     assert main(["check", str(listing), "--names"]) == 0
     assert "dissolved Sep 2024  EXAMPLE COURIERS LTD" in capsys.readouterr().out
+
+
+def test_find_then_check_end_to_end(
+    companies_house: FakeCompaniesHouse,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    companies_house.add(
+        {
+            "company_number": "09955390",
+            "company_name": "TGP COURIERS LTD",
+            "company_status": "dissolved",
+            "date_of_cessation": "2024-09-03",
+            "registered_office_address": {"postal_code": "BH2 5PS"},
+        }
+    )
+    monkeypatch.setenv("CH_API_KEY", TEST_KEY)
+    monkeypatch.setattr("list_decay.cli.API_BASE", companies_house.url)
+    crm = tmp_path / "crm.csv"
+    crm.write_text(
+        "Company Name,Postcode\nTGP Couriers Ltd,BH2 5PS\nNobody Ltd,\n", encoding="utf-8"
+    )
+
+    assert main(["find", str(crm), "--quiet"]) == 0
+    assert "1 of 2 rows now have a company number." in capsys.readouterr().out
+
+    assert main(["check", str(tmp_path / "crm-numbers.csv"), "--quiet"]) == 0
+    assert "1 of 1 are gone or going: 100%." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("contents", "expected"),
+    [
+        (None, "can't find"),
+        ("Company Name\nTGP Couriers Ltd\n", "API key"),
+        ("TGP Couriers Ltd\nAcme Ltd\n", "header row naming the company name column"),
+        ("Company Name\n", "no company names found"),
+    ],
+)
+def test_find_explains_what_is_wrong(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], contents: str | None, expected: str
+) -> None:
+    names = tmp_path / "names.csv"
+    if contents is not None:
+        names.write_text(contents, encoding="utf-8")
+    assert main(["find", str(names)]) == 2
+    assert expected in capsys.readouterr().err

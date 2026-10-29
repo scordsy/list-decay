@@ -73,7 +73,7 @@ def test_unreadable_rows_are_reported_with_their_line_number(tmp_path: Path) -> 
 
 def test_an_excel_export_with_a_byte_order_mark_is_read(tmp_path: Path) -> None:
     path = tmp_path / "excel.csv"
-    path.write_bytes("﻿company_number\n08500000\n".encode())
+    path.write_bytes("\ufeffcompany_number\n08500000\n".encode())
     assert read_company_list(path).numbers == ["08500000"]
 
 
@@ -81,3 +81,10 @@ def test_a_latin1_export_is_read(tmp_path: Path) -> None:
     path = tmp_path / "latin1.csv"
     path.write_bytes("name,company_number\nCaf\xe9 Ltd,08500000\n".encode("latin-1"))
     assert read_company_list(path).numbers == ["08500000"]
+
+
+def test_rows_with_no_number_yet_are_counted_not_flagged(tmp_path: Path) -> None:
+    path = write(tmp_path, "name,company_number\nAcme Ltd,08500000\nBravo Ltd,\n")
+    result = read_company_list(path)
+    assert result.numbers == ["08500000"]
+    assert (result.blank, result.unreadable) == (1, [])

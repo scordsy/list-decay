@@ -12,6 +12,8 @@ from typing import TextIO
 from list_decay.check import CheckedCompany, Tally
 from list_decay.company import Verdict
 from list_decay.company_list import CompanyList
+from list_decay.find import Finding, FindOutcome
+from list_decay.name_list import NameList
 from list_decay.register import LOOKUPS_PER_SECOND
 from list_decay.study import DecayPoint, Population
 
@@ -52,6 +54,10 @@ def format_interval(low: float, high: float) -> str:
     return f"{low * 100:.1f}-{high * 100:.1f}%"
 
 
+def stopped(done: int, total: int) -> str:
+    return f"\n  Stopped after {done:,} of {total:,}."
+
+
 # ---------------------------------------------------------------------------- check
 
 
@@ -64,11 +70,12 @@ def check_header(paint: Painter, count: int, source: str, notes: Sequence[str]) 
 def list_notes(listing: CompanyList, file_name: str) -> list[str]:
     """What the reader should know about their file before the results start."""
     column = f', column "{listing.column}"' if listing.column else ""
-    minutes = math.ceil(len(listing.numbers) / LOOKUPS_PER_SECOND / 60)
-    duration = "under a minute" if minutes <= 1 else f"{minutes} minutes"
-    notes = [f"{file_name}{column}. Takes {duration} at Companies House's rate limit."]
+    notes = [f"{file_name}{column}. {_duration(len(listing.numbers))}"]
     if listing.duplicates:
         notes.append(f"Skipped {listing.duplicates:,} duplicates.")
+    if listing.blank:
+        rows = "row" if listing.blank == 1 else "rows"
+        notes.append(f"Skipped {listing.blank:,} {rows} with no company number yet.")
     if listing.unreadable:
         lines = ", ".join(str(line) for line, _ in listing.unreadable[:5])
         more = ", ..." if len(listing.unreadable) > 5 else ""
@@ -77,6 +84,12 @@ def list_notes(listing: CompanyList, file_name: str) -> list[str]:
             f"(lines {lines}{more})."
         )
     return notes
+
+
+def _duration(lookups: int) -> str:
+    minutes = math.ceil(lookups / LOOKUPS_PER_SECOND / 60)
+    duration = "under a minute" if minutes <= 1 else f"{minutes} minutes"
+    return f"Takes {duration} at Companies House's rate limit."
 
 
 def check_line(paint: Painter, result: CheckedCompany, *, show_name: bool) -> str:
@@ -105,6 +118,15 @@ def _describe(result: CheckedCompany, dot: str) -> tuple[str, str, str, str]:
             return "?", DIM, "unclear", f"the register says '{result.register_status}'"
 
 
+def _summary_row(
+    paint: Painter, label: str, count: int, total: int, style: str, note: str = ""
+) -> str:
+    """One line of a summary: label, count, share of `total` (left blank when total is 0)."""
+    line = f"  {paint(label.ljust(15), style)}{paint(f'{count:>6,}', style)}"
+    line += f"   {paint(f'{count / total:4.0%}', style)}" if total else " " * 7
+    return line + (f"  {paint(note, DIM)}" if note else "")
+
+
 def check_summary(paint: Painter, results: Sequence[CheckedCompany]) -> str:
     tally = Tally.of(results)
     # The same split as the study: formal insolvency, or the register striking the company off.
@@ -114,25 +136,19 @@ def check_summary(paint: Painter, results: Sequence[CheckedCompany]) -> str:
         if r.verdict is Verdict.CLOSING
     )
     closing_note = ", ".join(f"{route} {count:,}" for route, count in routes.most_common())
-
-    def row(label: str, count: int, style: str, note: str = "", share: bool = True) -> str:
-        line = f"  {paint(label.ljust(15), style)}{paint(f'{count:>6,}', style)}"
-        if share and tally.found:
-            line += f"   {paint(f'{count / tally.found:4.0%}', style)}"
-        else:
-            line += " " * 7
-        return line + (f"  {paint(note, DIM)}" if note else "")
-
+    found = tally.found
     lines = [
         paint(f"  {paint.rule}", DIM),
-        row("Still trading", tally.trading, GREEN),
-        row("Closing", tally.closing, AMBER, closing_note),
-        row("Dissolved", tally.dissolved, RED, "legally gone"),
+        _summary_row(paint, "Still trading", tally.trading, found, GREEN),
+        _summary_row(paint, "Closing", tally.closing, found, AMBER, closing_note),
+        _summary_row(paint, "Dissolved", tally.dissolved, found, RED, "legally gone"),
     ]
     if tally.unclear:
-        lines.append(row("Unclear", tally.unclear, DIM, "status not recognised"))
+        lines.append(
+            _summary_row(paint, "Unclear", tally.unclear, found, DIM, "status not recognised")
+        )
     if tally.not_found:
-        lines.append(row("Not found", tally.not_found, DIM, "check the number", share=False))
+        lines.append(_summary_row(paint, "Not found", tally.not_found, 0, DIM, "check the number"))
     lines += [paint(f"  {paint.rule}", DIM), paint(f"  {headline(tally)}", BOLD), ""]
     return "\n".join(lines)
 
@@ -151,6 +167,80 @@ def headline(tally: Tally) -> str:
     if nearest >= 2 and abs(ratio - nearest) / nearest < 0.05:
         text += f", or 1 in {nearest}"
     return text + "."
+
+
+# ---------------------------------------------------------------------------- find
+
+
+def find_header(paint: Painter, names: NameList, file_name: str) -> str:
+    columns = f'names from "{names.name_column}"'
+    if names.postcode_column:
+        columns += f', postcodes from "{names.postcode_column}"'
+    if names.number_column:
+        columns += f', filling gaps in "{names.number_column}"'
+    notes = [f"{file_name}: {columns}.", _duration(len(names.records))]
+    count = len(names.records)
+    title = (
+        f"  Finding company numbers for {count:,} companies on the live Companies House register"
+    )
+    return "\n".join(["", paint(title, BOLD), *(paint(f"  {note}", DIM) for note in notes), ""])
+
+
+def find_line(paint: Painter, finding: Finding) -> str:
+    mark, style, detail = _describe_finding(finding)
+    number = finding.number or "-"
+    name = (finding.listed.name or "(blank)")[:32]
+    return f"  {paint(mark, style)}  {number:<8}  {name:<34}{paint(detail, style)}"
+
+
+def _describe_finding(finding: Finding) -> tuple[str, str, str]:
+    """(mark, style, detail) for one finding. The one place a find outcome becomes words."""
+    match finding.outcome:
+        case FindOutcome.MATCHED:
+            on = finding.matched_on.value if finding.matched_on else ""
+            return "+", GREEN, f"matched on {on}"
+        case FindOutcome.CHECK_BY_HAND:
+            count = len(finding.candidates)
+            return "?", AMBER, f"check by hand: {count} candidate{'s' if count != 1 else ''}"
+        case FindOutcome.NO_MATCH:
+            return "-", DIM, "no match"
+        case FindOutcome.ALREADY_NUMBERED:
+            return "=", DIM, "already had a number"
+
+
+def find_summary(paint: Painter, findings: Sequence[Finding], *, rows: int, written_to: str) -> str:
+    outcomes = Counter(finding.outcome for finding in findings)
+    matched_on = Counter(
+        f.matched_on.value for f in findings if f.outcome is FindOutcome.MATCHED and f.matched_on
+    )
+    on_note = ", ".join(f"on {how} {count:,}" for how, count in matched_on.most_common())
+    numbered = outcomes[FindOutcome.MATCHED] + outcomes[FindOutcome.ALREADY_NUMBERED]
+    lines = [
+        paint(f"  {paint.rule}", DIM),
+        _summary_row(paint, "Matched", outcomes[FindOutcome.MATCHED], rows, GREEN, on_note),
+        _summary_row(
+            paint,
+            "Check by hand",
+            outcomes[FindOutcome.CHECK_BY_HAND],
+            rows,
+            AMBER,
+            "every candidate is in the file",
+        ),
+        _summary_row(paint, "No match", outcomes[FindOutcome.NO_MATCH], rows, DIM),
+    ]
+    if outcomes[FindOutcome.ALREADY_NUMBERED]:
+        lines.append(
+            _summary_row(paint, "Had a number", outcomes[FindOutcome.ALREADY_NUMBERED], rows, DIM)
+        )
+    if len(findings) < rows:
+        lines.append(_summary_row(paint, "Not searched", rows - len(findings), rows, DIM))
+    lines += [
+        paint(f"  {paint.rule}", DIM),
+        paint(f"  {numbered:,} of {rows:,} rows now have a company number.", BOLD),
+        paint(f"  Written to {written_to}. Next: list-decay check {written_to}", DIM),
+        "",
+    ]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------- study
