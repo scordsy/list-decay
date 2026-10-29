@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "list-decay"
+dynamic = ["version"]
+description = "Check a list of UK companies against Companies House: trading, closing or dissolved."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Stefan Cordery" }]
+keywords = ["companies-house", "uk", "b2b", "outbound", "list-cleaning", "gtm", "data-quality"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Other Audience",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Office/Business",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Source = "https://github.com/scordsy/list-decay"
+Issues = "https://github.com/scordsy/list-decay/issues"
+Author = "https://www.linkedin.com/in/stefancordery/"
+
+[project.scripts]
+list-decay = "list_decay.cli:run"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "rich>=13"]
+
+[tool.hatch.version]
+path = "list_decay/_version.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".github", "docs/images", "scripts"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "C4", "PT", "PTH", "RET", "ARG"]
+# Exception names read as plain English (ApiKeyRejected), not ApiKeyRejectedError.
+ignore = ["N818"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["list_decay", "tests", "scripts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error"]

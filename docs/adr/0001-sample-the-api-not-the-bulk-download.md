@@ -1,0 +1,3 @@
+# Sample the register through the API, not the bulk download
+
+Companies House publishes a free bulk download of the whole register, which would be far faster to sample than calling the API one company at a time. It leaves dissolved companies out, though: they are not flagged, they simply stop appearing. A sample drawn from it can never show decay. So the study draws company numbers at random from the band issued between two dates and looks each one up through the API, which still answers for dissolved companies. It is slow (the July 2026 run took 10,882 lookups at the rate limit), so every lookup is saved and a run can be stopped and resumed.
