@@ -186,7 +186,7 @@ list-decay study --live --size 1000 --incorporated 2016-01-01 2021-12-31 --list-
 
 - Python 3.10 or newer, **standard library only**: nothing to install, nothing to break ([why](docs/adr/0002-standard-library-only.md)).
 - Tests where it matters: reading messy lists, checking a list against a register, finding numbers from names, the live connection (against a fake Companies House, including rate limits and outages), and the study reproducing the published figures to the decimal.
-- Every change runs strict type checks, linting and the tests: on Linux across Python 3.10 to 3.14, and on macOS and Windows on the oldest and newest.
+- Every change runs strict type checks, linting and the tests: on Linux across Python 3.10 to 3.14, on Windows on the oldest and newest, and on macOS on the newest.
 - [`GLOSSARY.md`](GLOSSARY.md) pins down the words, and [`docs/adr`](docs/adr) records the decisions you might question.
 
 I build with Claude Code. I own the design, the data logic and the checks, and Claude writes most of the code. [`CLAUDE.md`](CLAUDE.md) is the brief it works from.
