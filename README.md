@@ -5,7 +5,7 @@
 <h1 align="center">list-decay</h1>
 
 <p align="center">
-  <strong>Check your UK company list against Companies House before you spend money on it.</strong>
+  <strong>Find the dissolved and closing companies on your UK prospect list before you pay to enrich, verify or email them.</strong>
 </p>
 
 <p align="center">
