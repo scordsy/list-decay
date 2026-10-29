@@ -182,4 +182,5 @@ I build with Claude Code. I own the design, the data logic and the checks, and C
 Built by **Stefan Cordery**. Marketing leader turned builder, 14+ years in B2B marketing, now building GTM systems in Claude Code: TAM and ICP scoring, enrichment, buying signals, outbound and CRM workflows.
 
 - [Follow me on LinkedIn](https://www.linkedin.com/in/stefancordery/)
+- [The post this started from](https://www.linkedin.com/posts/stefancordery_your-email-copy-might-be-fine-a-third-of-ugcPost-7519357314777378816-7waE/)
 - **Want your list checked without running anything?** [Message me on LinkedIn](https://www.linkedin.com/in/stefancordery/) with the company numbers. Numbers only, no contacts, and I delete the file afterwards.
